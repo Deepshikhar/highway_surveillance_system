@@ -7,12 +7,10 @@ from deep_sort_realtime.deepsort_tracker import DeepSort
 import streamlit as st
 import plotly.graph_objects as go
 from ultralytics import YOLO
-import tempfile
-import os
 
 ### Configuration
 st.set_page_config(
-    page_title="Highway Surveillance",        
+    page_title="Highway Survillence",        
     layout="wide",
 )
 
@@ -135,21 +133,42 @@ def speed_estimation(vehicle_position, speed_region, perspective_region, track_d
     
     return text, speed
 
-def process_video(video_source, tracker, model, class_names, colors, result_elem):
+def main(_argv):
+    ## Dashboard    
+    st.title("Highway Vehicle Survillence with Yolov11")    
+    
+    # Initialize session state for tracking
+    if 'frame_count' not in st.session_state:
+        st.session_state.frame_count = 0
+    
+    result_elem = st.empty()
+    
     # Initialize the video capture
-    if isinstance(video_source, str) and os.path.exists(video_source):
-        # Video file path
-        cap = cv2.VideoCapture(video_source)
-    elif hasattr(video_source, 'name'):
-        # Uploaded file object
-        cap = cv2.VideoCapture(video_source.name)
+    video_input = "highway.mp4"
+    # Check if the video input is an integer (webcam index)
+    if video_input.isdigit():
+        video_input = int(video_input)
+        cap = cv2.VideoCapture(video_input)
     else:
-        st.error('Error: Invalid video source.')
-        return
+        cap = cv2.VideoCapture(video_input)
 
     if not cap.isOpened():
         st.error('Error: Unable to open video source.')
         return   
+
+    # Initialize the DeepSort tracker
+    tracker = DeepSort(max_age=5)
+    
+    # Load YOLOv11 model
+    yolov11_weights = "yolo11s.pt"  # You can use yolov11s.pt, yolov11m.pt, yolov11l.pt, yolov11x.pt
+    model = YOLO(yolov11_weights)
+
+    # Load the COCO class labels (YOLOv11 uses the same COCO classes)
+    class_names = model.names
+
+    # Create a list of random colors to represent each class
+    np.random.seed(42)
+    colors = np.random.randint(0, 255, size=(len(class_names), 3)) 
 
     ## Vehicle Counter
     # Helper Variable
@@ -417,98 +436,7 @@ def process_video(video_source, tracker, model, class_names, colors, result_elem
         st.session_state.frame_count += 1
 
     # Release video capture
-    cap.release()
-
-def main(_argv):
-    ## Dashboard    
-    st.title("Highway Vehicle Surveillance with YOLOv11")    
-    
-    # Initialize session state for tracking
-    if 'frame_count' not in st.session_state:
-        st.session_state.frame_count = 0
-    if 'processing' not in st.session_state:
-        st.session_state.processing = False
-    
-    result_elem = st.empty()
-    
-    # Video input options
-    st.sidebar.title("Video Input Options")
-    
-    input_method = st.sidebar.radio(
-        "Choose input method:",
-        ["File Path", "Upload Video File"]
-    )
-    
-    video_source = None
-    
-    if input_method == "File Path":
-        video_path = st.sidebar.text_input(
-            "Enter video file path:",
-            value="highway.mp4",
-            help="Enter the path to your video file (e.g., 'video.mp4', 'path/to/video.avi')"
-        )
-        
-        if st.sidebar.button("Process Video") and video_path:
-            if os.path.exists(video_path):
-                video_source = video_path
-                st.session_state.processing = True
-            else:
-                st.sidebar.error(f"File not found: {video_path}")
-    
-    else:  # Upload Video File
-        uploaded_file = st.sidebar.file_uploader(
-            "Choose a video file",
-            type=['mp4', 'avi', 'mov', 'mkv', 'wmv'],
-            help="Upload a video file for processing"
-        )
-        
-        if uploaded_file is not None and st.sidebar.button("Process Uploaded Video"):
-            # Save uploaded file to temporary location
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
-                tmp_file.write(uploaded_file.getvalue())
-                video_source = tmp_file.name
-                st.session_state.processing = True
-    
-    # Stop processing button
-    if st.session_state.processing:
-        if st.sidebar.button("Stop Processing"):
-            st.session_state.processing = False
-            st.rerun()
-    
-    # Initialize models only once
-    if 'tracker' not in st.session_state:
-        st.session_state.tracker = DeepSort(max_age=5)
-    
-    if 'model' not in st.session_state:
-        yolov11_weights = "yolo11s.pt"
-        st.session_state.model = YOLO(yolov11_weights)
-        st.session_state.class_names = st.session_state.model.names
-        np.random.seed(42)
-        st.session_state.colors = np.random.randint(0, 255, size=(len(st.session_state.class_names), 3))
-    
-    # Process video if source is available and processing is enabled
-    if st.session_state.processing and video_source is not None:
-        with st.spinner("Processing video..."):
-            process_video(
-                video_source, 
-                st.session_state.tracker, 
-                st.session_state.model, 
-                st.session_state.class_names, 
-                st.session_state.colors, 
-                result_elem
-            )
-        
-        # Clean up temporary file if it was an upload
-        if input_method == "Upload Video File" and os.path.exists(video_source):
-            os.unlink(video_source)
-        
-        st.session_state.processing = False
-        st.success("Video processing completed!")
-    
-    elif not st.session_state.processing:
-        # Show instructions when not processing
-        with result_elem.container():
-            st.info("👆 Please select a video input method from the sidebar and click 'Process Video' to start analysis.")
+    cap.release()    
 
 if __name__ == '__main__':
     app.run(main)
